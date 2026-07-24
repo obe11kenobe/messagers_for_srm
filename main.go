@@ -1,15 +1,18 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
+	"nhooyr.io/websocket"
 )
 
 type Conversation struct {
@@ -28,6 +31,81 @@ type Message struct {
 	SenderID       int       `json:"sender_id"`
 	Text           string    `json:"text"`
 	CreatedAt      time.Time `json:"created_at"`
+}
+
+type hub struct {
+	mu    sync.Mutex
+	conns map[int][]*websocket.Conn // conversation_id -> список соединений
+}
+
+func newHub() *hub {
+	return &hub{conns: make(map[int][]*websocket.Conn)}
+}
+
+func (h *hub) broadcast(convID int, msg Message) {
+	h.mu.Lock()
+	conns := h.conns[convID]
+	h.mu.Unlock()
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Println("broadcast marshal:", err)
+		return
+	}
+
+	for _, c := range conns {
+		err := c.Write(context.Background(), websocket.MessageText, data)
+		if err != nil {
+			log.Println("broadcast write:", err)
+			continue
+		}
+	}
+}
+
+func (h *hub) subscribe(convID int, c *websocket.Conn) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.conns[convID] = append(h.conns[convID], c)
+}
+
+func (h *hub) unsubscribe(convID int, c *websocket.Conn) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	conns := h.conns[convID]
+	for i, conn := range conns {
+		if conn == c {
+			h.conns[convID] = append(conns[:i], conns[i+1:]...)
+			break
+		}
+	}
+}
+
+func wsHandler(h *hub) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		idStr := strings.TrimPrefix(r.URL.Path, "/conversations/")
+		idStr = strings.TrimSuffix(idStr, "/ws")
+
+		convID, err := strconv.Atoi(idStr)
+		if err != nil {
+			http.Error(w, "Некорректный id диалога", http.StatusBadRequest)
+			return
+		}
+
+		c, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+
+		h.subscribe(convID, c)
+		defer h.unsubscribe(convID, c)
+
+		for {
+			_, _, err := c.Read(context.Background())
+			if err != nil {
+				return
+			}
+		}
+	}
 }
 
 type createConversationRequest struct {
@@ -172,7 +250,7 @@ func conversationMessages(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-func postMessage(db *sql.DB) http.HandlerFunc {
+func postMessage(db *sql.DB, h *hub) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var msg Message
 
@@ -211,6 +289,8 @@ func postMessage(db *sql.DB) http.HandlerFunc {
 			return
 		}
 		msg.ID = int(id)
+
+		h.broadcast(msg.ConversationID, msg)
 
 		w.Header().Add("Content-Type", "application/json")
 		err = json.NewEncoder(w).Encode(msg)
@@ -259,16 +339,25 @@ func main() {
 		log.Fatal("Ошибки при создании таблицы messages:", err)
 	}
 
+	h := newHub()
+
 	http.HandleFunc("/messages", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case "GET":
 			getMessages(db)(w, r)
 		case "POST":
-			postMessage(db)(w, r)
+			postMessage(db, h)(w, r)
 		}
 	})
 
-	http.HandleFunc("/conversations/", conversationMessages(db))
+	http.HandleFunc("/conversations/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/ws") {
+			wsHandler(h)(w, r)
+			return
+		}
+		conversationMessages(db)(w, r)
+	})
+
 	http.HandleFunc("/conversations", createConversation(db))
 
 	log.Print("Сервер запущен на порту 8080")
