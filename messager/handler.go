@@ -3,6 +3,7 @@ package messager
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ func GetMessages(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		result, err := s.AllMessages()
 		if err != nil {
+			log.Println("GetMessages:", err)
 			http.Error(w, "Ошибка запроса к БД: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -38,6 +40,7 @@ func ConversationMessages(s *Store) http.HandlerFunc {
 
 		result, err := s.MessagesByConversation(convID)
 		if err != nil {
+			log.Println("ConversationMessages:", err)
 			http.Error(w, "Ошибка запроса к БД: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -59,6 +62,7 @@ func PostMessage(s *Store, h *Hub) http.HandlerFunc {
 
 		exists, err := s.ConversationExists(msg.ConversationID)
 		if err != nil {
+			log.Println("PostMessage: ConversationExists:", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -69,6 +73,7 @@ func PostMessage(s *Store, h *Hub) http.HandlerFunc {
 
 		msg, err = s.InsertMessage(msg)
 		if err != nil {
+			log.Println("PostMessage: InsertMessage:", err)
 			http.Error(w, "Ошибка сохранения в БД: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -92,6 +97,7 @@ func CreateConversation(s *Store) http.HandlerFunc {
 
 		conv, err := s.CreateConversation(req.UserIDs)
 		if err != nil {
+			log.Println("CreateConversation:", err)
 			http.Error(w, "Ошибка сохранения в БД: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -116,6 +122,7 @@ func WSHandler(h *Hub) http.HandlerFunc {
 
 		c, err := websocket.Accept(w, r, nil)
 		if err != nil {
+			log.Println("WSHandler: accept:", err)
 			return
 		}
 

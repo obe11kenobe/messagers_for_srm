@@ -5,11 +5,20 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"messagers_for_crm/messager"
 
 	_ "modernc.org/sqlite"
 )
+
+func logRequests(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		next.ServeHTTP(w, r)
+		log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start))
+	})
+}
 
 func main() {
 	db, err := sql.Open("sqlite", "messenger.db")
@@ -45,5 +54,5 @@ func main() {
 	http.HandleFunc("/conversations", messager.CreateConversation(store))
 
 	log.Print("Сервер запущен на порту 8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Fatal(http.ListenAndServe(":8080", logRequests(http.DefaultServeMux)))
 }
