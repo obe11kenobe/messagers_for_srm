@@ -159,3 +159,51 @@ func (s *Store) CreateConversation(userIDs []int) (Conversation, error) {
 
 	return Conversation{ID: int(id), CreatedAt: createdAt}, nil
 }
+
+func (s *Store) ConversationsForUser(userID int) ([]Conversation, error) {
+	rows, err := s.db.Query(`
+		SELECT c.id, c.created_at
+		FROM conversations c
+		JOIN participants p ON p.conversation_id = c.id
+		WHERE p.user_id = ?
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []Conversation
+	for rows.Next() {
+		var c Conversation
+		var createdAt string
+		if err := rows.Scan(&c.ID, &createdAt); err != nil {
+			return nil, err
+		}
+		parsed, err := time.Parse(time.RFC3339Nano, createdAt)
+		if err != nil {
+			return nil, err
+		}
+		c.CreatedAt = parsed
+		result = append(result, c)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) FindConversation(userA, userB int) (int, bool, error) {
+	var convID int
+	err := s.db.QueryRow(`
+		SELECT conversation_id
+		FROM participants
+		WHERE user_id IN (?, ?)
+		GROUP BY conversation_id
+		HAVING COUNT(DISTINCT user_id) = 2
+	`, userA, userB).Scan(&convID)
+
+	if err == sql.ErrNoRows {
+		return 0, false, nil // такого чата ещё нет — это нормально, не ошибка
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return convID, true, nil
+}

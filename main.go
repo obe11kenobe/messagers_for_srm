@@ -54,7 +54,14 @@ func main() {
 		}
 	})
 
-	http.HandleFunc("/conversations", messager.RequireAuth(secret, messager.CreateConversation(store)))
+	http.HandleFunc("/conversations", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case "GET":
+			messager.RequireAuth(secret, messager.ListConversations(store))(w, r)
+		case "POST":
+			messager.RequireAuth(secret, messager.CreateConversation(store))(w, r)
+		}
+	})
 
 	http.HandleFunc("/conversations/", func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/ws") {

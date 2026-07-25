@@ -150,3 +150,22 @@ func WSHandler(h *Hub, secret string) http.HandlerFunc {
 		}
 	}
 }
+
+func ListConversations(s *Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := UserIDFromContext(r)
+		if !ok {
+			http.Error(w, "Не авторизован", http.StatusUnauthorized)
+			return
+		}
+
+		result, err := s.ConversationsForUser(userID)
+		if err != nil {
+			http.Error(w, "Ошибка запроса к БД: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
+	}
+}
