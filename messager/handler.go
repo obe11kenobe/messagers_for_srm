@@ -60,6 +60,14 @@ func PostMessage(s *Store, h *Hub) http.HandlerFunc {
 			return
 		}
 
+		userID, ok := UserIDFromContext(r)
+		if !ok {
+			http.Error(w, "Не авторизован", http.StatusUnauthorized)
+			return
+		}
+
+		msg.SenderID = userID
+
 		exists, err := s.ConversationExists(msg.ConversationID)
 		if err != nil {
 			log.Println("PostMessage: ConversationExists:", err)
@@ -109,8 +117,14 @@ func CreateConversation(s *Store) http.HandlerFunc {
 	}
 }
 
-func WSHandler(h *Hub) http.HandlerFunc {
+func WSHandler(h *Hub, secret string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		token := r.URL.Query().Get("token")
+		if _, err := ParseUserID(token, secret); err != nil {
+			http.Error(w, "Некорректный токен", http.StatusUnauthorized)
+			return
+		}
+
 		idStr := strings.TrimPrefix(r.URL.Path, "/conversations/")
 		idStr = strings.TrimSuffix(idStr, "/ws")
 

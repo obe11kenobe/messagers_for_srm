@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -21,6 +22,11 @@ func logRequests(next http.Handler) http.Handler {
 }
 
 func main() {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		log.Fatal("Не задана переменная окружения JWT_SECRET")
+	}
+
 	db, err := sql.Open("sqlite", "messenger.db")
 	if err != nil {
 		log.Fatal("Ошибка открытия БД:", err)
@@ -37,21 +43,21 @@ func main() {
 	http.HandleFunc("/messages", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case "GET":
-			messager.GetMessages(store)(w, r)
+			messager.RequireAuth(secret, messager.GetMessages(store))(w, r)
 		case "POST":
-			messager.PostMessage(store, h)(w, r)
+			messager.RequireAuth(secret, messager.PostMessage(store, h))(w, r)
 		}
 	})
+
+	http.HandleFunc("/conversations", messager.RequireAuth(secret, messager.CreateConversation(store)))
 
 	http.HandleFunc("/conversations/", func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/ws") {
-			messager.WSHandler(h)(w, r)
+			messager.WSHandler(h, secret)(w, r)
 			return
 		}
-		messager.ConversationMessages(store)(w, r)
+		messager.RequireAuth(secret, messager.ConversationMessages(store))(w, r)
 	})
-
-	http.HandleFunc("/conversations", messager.CreateConversation(store))
 
 	log.Print("Сервер запущен на порту 8080")
 	log.Fatal(http.ListenAndServe(":8080", logRequests(http.DefaultServeMux)))
