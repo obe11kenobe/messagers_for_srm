@@ -27,7 +27,12 @@ func main() {
 		log.Fatal("Не задана переменная окружения JWT_SECRET")
 	}
 
-	db, err := sql.Open("sqlite", "messenger.db")
+	dbPath := os.Getenv("MESSENGER_DB")
+	if dbPath == "" {
+		dbPath = "messenger.db"
+	}
+
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		log.Fatal("Ошибка открытия БД:", err)
 	}

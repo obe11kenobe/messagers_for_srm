@@ -1,0 +1,13 @@
+services:
+  messenger:
+    build: .
+    environment:
+      JWT_SECRET: ${JWT_SECRET}
+    volumes:
+      - messenger_data:/app/data
+    # порт наружу не публикуем — доступ только через reverse proxy CRM
+    expose:
+      - "8080"
+
+volumes:
+  messenger_data:
